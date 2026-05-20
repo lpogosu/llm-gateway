@@ -1,0 +1,21 @@
+apiVersion: v2
+name: llm-gateway
+description: OpenAI-compatible LLM gateway with routing, semantic cache, rate limiting and cost accounting
+type: application
+version: 0.4.0
+appVersion: "0.4.0"
+kubeVersion: ">=1.25.0-0"
+home: https://github.com/lpogosu/llm-gateway
+sources:
+  - https://github.com/lpogosu/llm-gateway
+maintainers:
+  - name: lpogosu
+    url: https://github.com/lpogosu
+keywords:
+  - llm
+  - gateway
+  - openai
+  - cache
+  - observability
+annotations:
+  artifacthub.io/license: MIT
