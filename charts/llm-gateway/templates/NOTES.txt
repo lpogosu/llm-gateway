@@ -1,0 +1,21 @@
+{{ include "llm-gateway.fullname" . }} is installed.
+
+Reach it from inside the cluster:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "llm-gateway.fullname" . }} 8080:{{ .Values.service.port }}
+  curl -s http://127.0.0.1:8080/health/ready | jq
+
+{{- if not .Values.secrets.existingSecret }}
+{{- if not .Values.secrets.create }}
+
+WARNING: neither secrets.existingSecret nor secrets.create is set, so the deployment
+references a Secret named {{ include "llm-gateway.secretName" . }} that this release does
+not manage. Create it before the pods start, or they will stay in CreateContainerConfigError.
+{{- end }}
+{{- end }}
+
+{{- if not .Values.serviceMonitor.enabled }}
+
+Metrics are exposed on /metrics but no ServiceMonitor was created. Set
+serviceMonitor.enabled=true if the cluster runs the Prometheus operator.
+{{- end }}
