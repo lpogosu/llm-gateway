@@ -1,0 +1,150 @@
+replicaCount: 2
+
+image:
+  repository: ghcr.io/lpogosu/llm-gateway
+  tag: ""            # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podAnnotations: {}
+podLabels: {}
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: nginx
+  annotations:
+    # Streaming responses must not be buffered by the ingress, or every token arrives
+    # at once at the end of the generation.
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+  hosts:
+    - host: llm-gateway.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    # No CPU limit on purpose: throttling an I/O-bound proxy adds tail latency without
+    # protecting anything the requests do not already protect.
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# A streamed completion can run for minutes; the pod needs long enough to finish the
+# streams it already accepted.
+terminationGracePeriodSeconds: 90
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+
+serviceMonitor:
+  enabled: false
+  interval: 15s
+  scrapeTimeout: 10s
+  labels: {}
+
+# Non-secret configuration, rendered into a ConfigMap and mounted as env.
+config:
+  logLevel: INFO
+  redisUrl: redis://redis-master:6379/0
+  ollamaBaseUrl: http://ollama:11434
+  openrouterBaseUrl: https://openrouter.ai/api/v1
+  embeddingBaseUrl: http://ollama:11434
+  embeddingModel: nomic-embed-text
+  cacheEnabled: true
+  cacheTtlSeconds: 3600
+  cacheSimilarityThreshold: "0.94"
+  cacheMaxTemperature: "0.2"
+  rateLimitEnabled: true
+  requestTimeoutSeconds: 60
+  breakerFailureThreshold: 5
+  breakerRecoverySeconds: 30
+  otelEnabled: false
+  otelEndpoint: http://otel-collector:4317
+
+# The routing table travels with the release: it is configuration, not a secret.
+routing:
+  version: 1
+  catalog:
+    - provider: ollama
+      model: llama3.1:8b
+      input_cost_per_1k_usd: 0.0
+      output_cost_per_1k_usd: 0.0
+      p95_latency_ms: 3500
+    # Prices are kept at four decimals or more: Helm renders anything smaller in
+    # scientific notation, and not every YAML 1.1 parser reads `2e-05` as a number.
+    - provider: openrouter
+      model: openai/gpt-4o-mini
+      input_cost_per_1k_usd: 0.00015
+      output_cost_per_1k_usd: 0.0006
+      p95_latency_ms: 2200
+  routes:
+    - name: general
+      match:
+        models:
+          - gpt-3.5-turbo
+          - gpt-4o-mini
+          - llama3.1:8b
+      targets:
+        - provider: ollama
+          model: llama3.1:8b
+        - provider: openrouter
+          model: openai/gpt-4o-mini
+
+secrets:
+  # Point at a Secret managed outside the chart (sealed-secrets, External Secrets,
+  # Vault). Leave empty to let the chart render the template below, which is meant for
+  # a throwaway cluster only.
+  existingSecret: ""
+  create: false
+  apiKeys: '{"sk-change-me":{"owner":"dev","rate_per_second":5,"burst":20}}'
+  openrouterApiKey: ""
