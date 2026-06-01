@@ -1,0 +1,68 @@
+groups:
+  - name: llm-gateway
+    interval: 30s
+    rules:
+      - alert: GatewayNoHealthyTarget
+        expr: |
+          sum(rate(llm_gateway_requests_total{outcome="exhausted"}[5m])) > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Requests are failing with every target exhausted"
+          description: >-
+            The fallback chain ran out of usable targets. Check
+            llm_gateway_circuit_state and llm_gateway_provider_errors_total.
+
+      - alert: GatewayCircuitOpen
+        expr: max by (provider) (llm_gateway_circuit_state) == 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Circuit for {{ $labels.provider }} has been open for 5 minutes"
+
+      - alert: GatewayHighErrorRate
+        expr: |
+          sum(rate(llm_gateway_requests_total{outcome!~"success|cache_hit"}[5m]))
+            / clamp_min(sum(rate(llm_gateway_requests_total[5m])), 0.001) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 5% of gateway requests are failing"
+
+      - alert: GatewayLatencyRegression
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, provider) (rate(llm_gateway_request_duration_seconds_bucket[10m]))
+          ) > 30
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 latency for {{ $labels.provider }} is above 30s"
+
+      - alert: GatewayCacheHitRatioCollapsed
+        expr: |
+          sum(rate(llm_gateway_cache_lookups_total{result="hit"}[30m]))
+            / clamp_min(
+                sum(rate(llm_gateway_cache_lookups_total{result=~"hit|miss"}[30m])), 0.001
+              ) < 0.05
+        for: 30m
+        labels:
+          severity: info
+        annotations:
+          summary: "Semantic cache is returning almost nothing"
+          description: >-
+            Either the embedding backend is failing (see result="error") or the
+            similarity threshold is set too high for this traffic.
+
+      - alert: GatewayRateLimitSaturated
+        expr: sum by (owner) (rate(llm_gateway_rate_limit_rejections_total[10m])) > 1
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          summary: "{{ $labels.owner }} is being throttled continuously"

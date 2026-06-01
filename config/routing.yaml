@@ -1,0 +1,89 @@
+# Routing table and pricing.
+#
+# catalog: every (provider, upstream model) the gateway may call, with the numbers the
+#          router and the accounting need. Prices are USD per 1000 tokens and follow the
+#          provider's public price list; p95_latency_ms is the operator's own measured
+#          figure for their hardware and is what the X-Gateway-Latency-Budget-Ms header
+#          is compared against.
+# routes:  evaluated top to bottom, first match wins. `targets` is an ordered fallback
+#          chain, not a load-balancing pool.
+version: 1
+
+catalog:
+  - provider: ollama
+    model: llama3.1:8b
+    input_cost_per_1k_usd: 0.0
+    output_cost_per_1k_usd: 0.0
+    p95_latency_ms: 3500
+    context_window: 131072
+
+  - provider: ollama
+    model: qwen2.5:3b
+    input_cost_per_1k_usd: 0.0
+    output_cost_per_1k_usd: 0.0
+    p95_latency_ms: 1200
+    context_window: 32768
+
+  - provider: openrouter
+    model: meta-llama/llama-3.1-8b-instruct
+    input_cost_per_1k_usd: 0.00002
+    output_cost_per_1k_usd: 0.00005
+    p95_latency_ms: 2000
+    context_window: 131072
+
+  - provider: openrouter
+    model: openai/gpt-4o
+    input_cost_per_1k_usd: 0.0025
+    output_cost_per_1k_usd: 0.01
+    p95_latency_ms: 4000
+    context_window: 128000
+
+  - provider: openrouter
+    model: openai/gpt-4o-mini
+    input_cost_per_1k_usd: 0.00015
+    output_cost_per_1k_usd: 0.0006
+    p95_latency_ms: 2200
+    context_window: 128000
+
+routes:
+  # Latency-sensitive traffic: the smallest local model first, a cheap hosted model as
+  # the escape hatch when the local runtime is unavailable.
+  - name: fast-local
+    match:
+      models:
+        - fast
+        - qwen2.5:3b
+    targets:
+      - provider: ollama
+        model: qwen2.5:3b
+      - provider: openrouter
+        model: meta-llama/llama-3.1-8b-instruct
+
+  # The compatibility shims. Existing clients keep sending the OpenAI model names they
+  # were written against and land on whatever the operator decided is equivalent today.
+  - name: general
+    match:
+      models:
+        - gpt-3.5-turbo
+        - gpt-4o-mini
+        - llama3.1:8b
+    targets:
+      - provider: ollama
+        model: llama3.1:8b
+      - provider: openrouter
+        model: meta-llama/llama-3.1-8b-instruct
+      - provider: openrouter
+        model: openai/gpt-4o-mini
+
+  # Work that is worth paying for. No local target: falling back to an 8B model would
+  # answer the question badly rather than not at all, which is the worse failure.
+  - name: quality
+    match:
+      models:
+        - quality
+        - gpt-4o
+    targets:
+      - provider: openrouter
+        model: openai/gpt-4o
+      - provider: openrouter
+        model: openai/gpt-4o-mini
